@@ -1,0 +1,63 @@
+--- a/ndm_storage.c
++++ b/ndm_storage.c
+@@ -7,10 +7,11 @@
+
+ #define MTD_PART_STORAGE_A		"Storage_A"
+ #define MTD_PART_STORAGE_B		"Storage_B"
++#define MTD_PART_FIRMWARE_2		"Firmware_2"
+
+ #define MTD_UBI_MAP			"ndmubipart"
+
+-static struct mtd_info *concat_mtd[2];
++static struct mtd_info *concat_mtd[3];
+ static struct mtd_info *merged_mtd;
+
+ static const char *upart_probe_types[] = {
+@@ -81,6 +82,7 @@
+ {
+ 	struct mtd_info *mtd = NULL;
+ 	int err = 0;
++	int partition_count = 0;
+
+ 	memset(concat_mtd, 0, sizeof(concat_mtd));
+
+@@ -89,28 +91,33 @@
+ 	mtd = get_mtd_device_nm(MTD_PART_STORAGE_A);
+ 	if (IS_ERR(mtd)) {
+ 		pr_info("No storage partitions found\n");
+-
+ 		return err;
+ 	}
+
+ 	pr_info("Found 1st storage partition of size %llu bytes\n", mtd->size);
+-
+-	concat_mtd[0] = mtd;
++	concat_mtd[partition_count++] = mtd;
+
+ 	mtd = get_mtd_device_nm(MTD_PART_STORAGE_B);
+ 	if (!IS_ERR(mtd)) {
+ 		pr_info("Found 2nd storage partition of size %llu bytes\n",
+ 			mtd->size);
+-		concat_mtd[1] = mtd;
++		concat_mtd[partition_count++] = mtd;
++	}
++
++	mtd = get_mtd_device_nm(MTD_PART_FIRMWARE_2);
++	if (!IS_ERR(mtd)) {
++		pr_info("Found 3rd storage partition of size %llu bytes [Patched @spatiumstas]\n",
++			mtd->size);
++		concat_mtd[partition_count++] = mtd;
+ 	}
+
+ 	pr_info("Registering UBI data partitions parser\n");
+
+ 	register_mtd_parser(&ndm_ubi_parser);
+
+-	/* Combine the two partitions into a single MTD device & register it: */
++	/* Combine the partitions into a single MTD device & register it: */
+ 	merged_mtd = mtd_concat_create(concat_mtd,
+-		concat_mtd[1] == NULL ? 1 : 2,
++		partition_count,
+ 		"NDM combined UBI partition");
+
+ 	if (merged_mtd)
