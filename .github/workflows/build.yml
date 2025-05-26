@@ -1,0 +1,109 @@
+name: Build KeeneticOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk_branch:
+        description: 'Keenetic SDK branch to use'
+        required: true
+        default: '4.02'
+        type: string
+      debug_mode:
+        description: 'Verbose logging'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build-firmware:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Check firmware files
+        run: |
+          FIRMWARE_FILES=(firmware/*.bin)
+          if [ ${#FIRMWARE_FILES[@]} -eq 0 ]; then
+            echo "Error: No firmware file found in 'firmware/' directory."
+            exit 1
+          elif [ ${#FIRMWARE_FILES[@]} -gt 1 ]; then
+            echo "Error: More than one firmware file found in 'firmware/'. Please upload only one file."
+            exit 1
+          else
+            echo "Found firmware file: ${FIRMWARE_FILES[0]}"
+            echo "FIRMWARE_PATH=${FIRMWARE_FILES[0]}" >> $GITHUB_ENV
+          fi
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y attr bc build-essential curl gawk git gperf libhtml-parser-perl \
+            libjson-perl libncurses-dev libssl-dev libxml-libxml-perl python3 subversion unzip zlib1g-dev
+
+      - name: Clone Keenetic SDK
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.sdk_branch || '4.02' }} https://github.com/keenetic/keenetic-sdk.git
+          cd keenetic-sdk
+
+      - name: Move DL folder
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/keenetic-sdk/dl"
+          if [ -d "$GITHUB_WORKSPACE/dl" ]; then
+            if [ "$(ls -A "$GITHUB_WORKSPACE/dl")" ]; then
+              cp -r "$GITHUB_WORKSPACE/dl/"* "$GITHUB_WORKSPACE/keenetic-sdk/dl/"
+              echo "DL content copied successfully"
+            else
+              echo "DL directory is empty"
+            fi
+          else
+            echo "DL directory not found, creating empty"
+            mkdir -p "$GITHUB_WORKSPACE/keenetic-sdk/dl"
+          fi
+
+      - name: Unpack firmware
+        run: |
+          cd keenetic-sdk
+          ./unpack.sh "../${{ env.FIRMWARE_PATH }}"
+
+      - name: Prepare
+        run: |
+          cd keenetic-sdk
+          make target/linux/prepare
+
+      - name: Patch configuration
+        run: |
+          cd keenetic-sdk
+          
+          TARGET=$(find "$(pwd)/build_dir" -name "ndm_storage.c" -type f)
+          if [ -z "$TARGET" ]; then
+            echo "Error: ndm_storage.c not found in build_dir"
+            exit 1
+          fi
+          
+          echo "Found target file at: $TARGET"
+          cp "$TARGET" "${TARGET}.bak"
+          patch "$TARGET" < "$GITHUB_WORKSPACE/patches/010-add-partition.patch" || {
+            echo "Error: Failed to apply patch"
+            cp "${TARGET}.bak" "$TARGET"
+            exit 1
+          }
+
+      - name: Build firmware
+        run: |
+          cd keenetic-sdk
+          NCPU=$(grep processor /proc/cpuinfo | wc -l)
+          let NCPU=1+${NCPU}
+          echo "Building with ${NCPU} threads"
+          if [ "${{ github.event.inputs.debug_mode }}" = "true" ]; then
+            make -j${NCPU} V=s
+          else
+            make -j${NCPU}
+          fi
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Keenetic-Firmware
+          retention-days: 7
+          path: keenetic-sdk/bin/**/*.bin
