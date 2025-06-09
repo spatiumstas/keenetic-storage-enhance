@@ -6,7 +6,7 @@ on:
       sdk_branch:
         description: 'Keenetic SDK branch to use'
         required: true
-        default: '4.02'
+        default: '4.03'
         type: string
       debug_mode:
         description: 'Verbose logging'
@@ -38,28 +38,13 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y attr bc build-essential curl gawk git gperf libhtml-parser-perl \
-            libjson-perl libncurses-dev libssl-dev libxml-libxml-perl python3 subversion unzip zlib1g-dev
+          sudo apt-get install -y attr bc build-essential curl file gawk git gperf jq libhtml-parser-perl \
+            libjson-perl libncurses-dev libssl-dev libxml-libxml-perl lzip protobuf-c-compiler python3 subversion unzip zlib1g-dev
 
-      - name: Clone Keenetic SDK
+      - name: Clone repository
         run: |
-          git clone --depth 1 --branch ${{ github.event.inputs.sdk_branch || '4.02' }} https://github.com/keenetic/keenetic-sdk.git
+          git clone --depth 1 --branch ${{ github.event.inputs.sdk_branch || '4.03' }} https://github.com/keenetic/keenetic-sdk.git
           cd keenetic-sdk
-
-      - name: Move DL folder
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/keenetic-sdk/dl"
-          if [ -d "$GITHUB_WORKSPACE/dl" ]; then
-            if [ "$(ls -A "$GITHUB_WORKSPACE/dl")" ]; then
-              cp -r "$GITHUB_WORKSPACE/dl/"* "$GITHUB_WORKSPACE/keenetic-sdk/dl/"
-              echo "DL content copied successfully"
-            else
-              echo "DL directory is empty"
-            fi
-          else
-            echo "DL directory not found, creating empty"
-            mkdir -p "$GITHUB_WORKSPACE/keenetic-sdk/dl"
-          fi
 
       - name: Unpack firmware
         run: |
@@ -101,7 +86,7 @@ jobs:
             make -j${NCPU}
           fi
 
-      - name: Upload firmware artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Keenetic-Firmware
